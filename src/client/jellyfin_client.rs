@@ -114,10 +114,10 @@ pub struct JellyfinClient {
 }
 
 fn generate_jellyfin_authorization(
-    user_id: &str, client: &str, device: &str, device_id: &str, version: &str,
+    client: &str, device: &str, device_id: &str, version: &str, token: &str,
 ) -> String {
     format!(
-        "Emby UserId={user_id},Client={client},Device={device},DeviceId={device_id},Version={version}"
+        "MediaBrowser Client={client},Device={device},DeviceId={device_id},Version={version},Token={token}"
     )
 }
 
@@ -132,7 +132,7 @@ impl Default for JellyfinClient {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("Accept-Encoding", HeaderValue::from_static("gzip"));
         headers.insert(
-            "X-Emby-authorization",
+            reqwest::header::AUTHORIZATION,
             HeaderValue::from_str(&generate_jellyfin_authorization(
                 "",
                 CLIENT_ID,
@@ -183,7 +183,16 @@ impl JellyfinClient {
 
     pub async fn header_change_token(&self, token: &str) -> Result<()> {
         let mut headers = self.headers.lock().await;
-        headers.insert("X-Emby-Token", HeaderValue::from_str(token)?);
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            HeaderValue::from_str(&generate_jellyfin_authorization(
+                CLIENT_ID,
+                &DEVICE_NAME,
+                &DEVICE_ID,
+                VERSION,
+                token,
+            ))?,
+        );
         Ok(())
     }
 
@@ -192,29 +201,13 @@ impl JellyfinClient {
         url.set_port(Some(port.parse::<u16>().unwrap_or_default()))
             .map_err(|_| anyhow!("Failed to set port"))?;
         let mut url_lock = self.url.lock().await;
-        *url_lock = Some(url.join("emby/")?);
+        *url_lock = Some(url);
         Ok(())
     }
 
     pub async fn set_user_id(&self, user_id: &str) -> Result<()> {
         let mut user_id_lock = self.user_id.lock().await;
         *user_id_lock = user_id.to_string();
-        self.header_change_user_id(user_id).await?;
-        Ok(())
-    }
-
-    pub async fn header_change_user_id(&self, user_id: &str) -> Result<()> {
-        let mut headers = self.headers.lock().await;
-        headers.insert(
-            "X-Emby-authorization",
-            HeaderValue::from_str(&generate_jellyfin_authorization(
-                user_id,
-                CLIENT_ID,
-                &DEVICE_NAME,
-                &DEVICE_ID,
-                VERSION,
-            ))?,
-        );
         Ok(())
     }
 
@@ -377,7 +370,7 @@ impl JellyfinClient {
             "Username": username,
             "Pw": password
         });
-        self.post_json("Users/authenticatebyname", &[], body).await
+        self.post_json("Users/AuthenticateByName", &[], body).await
     }
 
     pub fn add_params_to_url(&self, url: &mut Url, params: &[(&str, &str)]) {
